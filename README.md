@@ -7,7 +7,7 @@
 > **Reference Paper:** *COMET: Convolutional Dimension Interaction for Collaborative Filtering (ACM TIST, 2023)*
 
 ### 1.1 Research Motivation & Objective (연구 배경 및 목적)
-본 연구는 2023년 ACM TIST에 발표된 최신 SOTA 추천 모델인 **COMET**의 아키텍처를 직접 PyTorch 기반으로 구현(Replication)하고, 기존 표준 벤치마크 모델인 **NeuMF(2017)**, **ConvNCF(2018)**와의 대조 실험을 통해 대규모 데이터 환경 하에서의 데이터 변환 효율성과 다차원 엔티티 모델링의 특성을 검증하기 위해 시작되었습니다.
+본 연구는 2023년 ACM TIST에 발표된 최신 SOTA 추천 모델인 **COMET**의 아키텍처를 직접 PyTorch 기반으로 구현(Replication)하고, 기존 표준 벤치마크 모델인 **NeuMF(2017)**, **ConvNCF(2018)**와의 대조 실험을 통해 통제된 합성 데이터 환경에서의 데이터 변환 효율성과 다차원 엔티티 모델링의 특성을 검증하기 위해 시작되었습니다.
 
 ### 1.2 🎯 Key Architectural Innovations of COMET
 * **User History Embedding Map**: 단순한 User-Item 단일 쌍 피딩 방식에서 탈피하여, 사용자의 과거 $N$개 시청 이력과 현재 타겟 아이템을 하나의 $[(N+1) \times d]$ 차원의 2차원 '이미지 지도로 추상화'하는 전처리 파이프라인 혁신을 이룸.
@@ -34,7 +34,7 @@ COMET 모델이 로우 데이터를 어떻게 다차원 임베딩 맵으로 변�
 ---
 
 ### 1.4 Detailed Implementation & Lab Report (PyTorch 실험 개요)
-본 실험에서는 데이터 전처리 파이프라인 설계부터 PyTorch 모델 레이어 구현, 하이퍼파라미터 최적화 및 랭킹 평가지표 분석을 포괄하는 17개 장의 기술 실험을 수행했습니다.
+본 실험에서는 데이터 전처리 파이프라인 설계부터 PyTorch 모델 레이어 구현, 하이퍼파라미터 설정 및 랭킹 평가지표 분석을 포괄하는 16개 장의 기술 실험을 수행했습니다.
 
 * **Framework & Dataset**: PyTorch 2.x + Cornac 2.3.5 / Synthetic Data (Power-law distribution, 1,000 Users, 500 Items, 15,000 Interactions, Density 3%)
 * **Core Implementation Logic**: `Outer Product`를 통한 $32 \times 32$ Interaction Map 생성 모듈 및 `Multi-layer 2D CNN` 포워드 패스 파이프라인을 커스텀 구현함.
@@ -44,7 +44,7 @@ COMET 모델이 로우 데이터를 어떻게 다차원 임베딩 맵으로 변�
 ---
 
 ## SECTION 2. Structural Limitations of COMET
-> SOTA 모델들을 직접 구현하고 합성 데이터(Synthetic Data) 환경 하에서 5 Epochs 벤치마크 테스트를 수행한 결과, 다음과 같은 **정량적 수치와 함께 구조적 한계점**을 명확히 도출하였습니다.
+> SOTA 모델들을 직접 구현하고 합성 데이터(Synthetic Data) 환경 하에서 5 Epochs 벤치마크 테스트를 수행한 결과, 다음과 같은 **학습 실패 현상과 구조적 한계점**을 도출하였습니다.
 
 ### 2.1 Experimental Results & Empirical Discovery (실험 결과 및 한계 도출)
 
@@ -55,7 +55,7 @@ COMET 모델이 로우 데이터를 어떻게 다차원 임베딩 맵으로 변�
 | **COMET** | *0.0286* | *0.0212* | *0.0456* | 35.6s | 44.7s | **0.6927 $\rightarrow$ 0.6929 (학습 실패/고착)** |
 
 ### 2.2 파이프라인 한계점에 대한 원인 심층 분석 (Root Cause Analysis)
-실험 결과, COMET 모델은 정상적으로 수렴하지 못하고 0.0286이라는 극도로 저조한 성능(Training Failure)을 보였습니다. 분석 결과, 이는 단순 알고리즘의 오류가 아닌 **원천 데이터 파이프라인이 가진 특성과 모델 구조 간의 불일치**로 인한 시스템적 한계임이 증명되었습니다.
+실험 결과, COMET 모델은 정상적으로 수렴하지 못하고 0.0286이라는 극도로 저조한 성능(Training Failure)을 보였습니다. 분석 결과, 이는 **원천 데이터의 특성과 모델 구조 간의 불일치**에서 비롯된 것으로 판단됩니다. 특히 본 합성 데이터에는 시간 순서가 없어, 사용자를 과거 이력으로만 표현하는 COMET은 학습할 신호를 얻지 못했습니다. 이 분석 과정에서 도출한 COMET 구조의 한계는 다음과 같습니다.
 
 1. **시간적 의존성 부족 (Temporal Dependency)**: 고정된 크기의 CNN 커널을 기반으로 임베딩 지도를 스캔하기 때문에, 시간에 따라 유기적으로 변화하는 사용자 행동 스트림 데이터의 장기적인 맥락(Long-term dependency)을 데이터 흐름상에서 포착하지 못합니다. 추가로, 본 합성 데이터셋처럼 인과 관계가 없는 무작위 순서의 로그가 유입될 경우, CNN 필터는 아무런 맥락을 학습하지 못합니다.
 2. **구조적 연결성 간과 (Structural Connectivity)**: 아이템 간의 단순 소비 순서에만 매몰될 뿐, 엔티티 간의 복합적인 관계망이나 공동 소비 패턴(Co-click)과 같은 고차원적 구조적 연결 토폴로지를 피처 레이어에 반영하지 못합니다. 데이터가 Sparse할수록(Density 3%) 단순 히스토리 나열 방식은 오버핏의 원인이 됩니다.
@@ -67,7 +67,7 @@ COMET 모델이 로우 데이터를 어떻게 다차원 임베딩 맵으로 변�
 
 본 프로젝트는 기존 CNN 기반 순차적 추천(Sequential Recommendation) 모델들이 가진 상기 구조적 한계를 데이터 파이프라인 및 아키텍처 관점에서 분석하고, 이를 최신 Transformer 및 Graph Neural Network(GNN) 구성요소를 통해 효율적으로 해결하는 **M-Trans4Rec** 프레임워크를 제안합니다.
 
-서로 다른 성격의 세 가지 데이터 소스에 대응하는 Dedicated Encoder(Sequence, Graph, Side Info)를 병렬 파이프라인으로 배치하고, 여기서 추출된 이종(Heterogeneous) 데이터 스트림을 **Adaptive Gating Network**를 통해 실시간으로 동적 통합하는 프레임워크를 설계하였습니다. 특히 은닉 계층에서 특징 차원을 **128 → 256 → 128 → 64**로 변화시키는 **Expansion-Compression 아키텍처**를 통해 복잡한 비선형 상호작용을 모델링하는 동시에 연산 오버헤드를 제어합니다. 본 모델은 기존 인프라적 한계를 해소하여 추천 파이프라인의 처리량(Throughput)과 순위 품질(NDCG)을 획기적으로 향상시키는 것을 목표로 합니다.
+서로 다른 성격의 세 가지 데이터 소스에 대응하는 Dedicated Encoder(Sequence, Graph, Side Info)를 병렬 파이프라인으로 배치하고, 여기서 추출된 이종(Heterogeneous) 데이터 스트림을 **Adaptive Gating Network**를 통해 실시간으로 동적 통합하는 프레임워크를 설계하였습니다. 특히 은닉 계층에서 특징 차원을 **128 → 256 → 128 → 64**로 변화시키는 **Expansion-Compression 아키텍처**를 통해 복잡한 비선형 상호작용을 모델링하는 동시에 연산 오버헤드를 제어합니다. 본 모델은 기존 구조의 한계를 해소하여 희소한 데이터 환경에서도 추천 순위 품질(NDCG)을 향상시키는 것을 목표로 합니다.
 
 ---
 
@@ -80,7 +80,7 @@ COMET의 정적이고 고정된 변환 융합 방식 대신, 유저의 실시간
 Adaptive Fusion 계층을 통과한 128차원 데이터 스트림을 **Prediction Layer(MLP)** 진입 시 256차원으로 일시 확장하여 이종 소스 정보 간의 비선형 관계를 충분히 모델링합니다. 이후 이를 다시 128차원, 64차원으로 계층적 압축을 수행함으로써 임베딩 공간 내의 불필요한 노이즈를 필터링하고 데이터 파이프라인 하단의 처리 효율성과 예측 정밀도를 극대화하는 구조를 설계했습니다.
 
 ### 4.3 Systematic Evaluation Plan (실험 계획)
-본 모델의 실효성을 검증하기 위해서는 대규모 배치 처리가 가능한 **Batch Size 256** 기반의 분산 연산 및 안정적인 인프라 환경을 구축하여 기존 SOTA 모델들과의 성능 비교를 수행해야 합니다. 아울러, 세 가지 전용 인코더의 데이터 통합 과정이 추천 품질 및 서빙 정밀도 향상에 미치는 영향을 다각도로 검증할 수 있는 실험 설계가 요구됩니다.
+본 모델의 실효성을 검증하기 위해서는 MovieLens-1M, Yelp, Amazon Beauty 등 실제 공개 벤치마크 데이터셋에서 충분한 학습(50+ Epochs, Early Stopping)과 다중 시드 반복 실험을 통해 기존 SOTA 모델들과의 성능 비교를 수행해야 합니다. 아울러, 세 가지 전용 인코더의 데이터 통합 과정이 추천 품질 및 서빙 정밀도 향상에 미치는 영향을 다각도로 검증할 수 있는 실험 설계가 요구됩니다.
 
 ---
 
@@ -96,7 +96,7 @@ Adaptive Fusion 계층을 통과한 128차원 데이터 스트림을 **Predictio
 | :--- | :--- | :--- | :--- |
 | **Input Layer** | Raw Data | 상호작용 시퀀스 로그, 그래프 토폴로지 데이터, 프로필 피처 수집 및 인제스천 | [Batch, Variable] |
 | **Encoding Layer** | Multi-Encoders | 이기종 도메인별 독립 특징 추출 및 변환 (Sequential, Graph, Side Info) | [Batch, 128] (각각) |
-| **Fusion Layer** | Gating Network | 정보원별 실시간 중요도 가중치 산출 및 동적 피처 조인(An adaptive Gold view) | [Batch, 128] |
+| **Fusion Layer** | Gating Network | 정보원별 실시간 중요도 가중치 산출 및 동적 피처 결합 | [Batch, 128] |
 | **Hidden Layer** | Dense Blocks (MLP) | 복합 특징 차원 확장 및 연산 최적화를 위한 단계적 압축 (128 $\rightarrow$ 256 $\rightarrow$ 128 $\rightarrow$ 64) | [Batch, 64] |
 | **Output Layer** | Score Predictor | 최종 서빙을 위한 아이템별 선호도 확률(Scalar) 도출 | [Batch, 1] |
 
@@ -135,12 +135,12 @@ Adaptive Fusion 계층을 통과한 128차원 데이터 스트림을 **Predictio
 > 본 M-Trans4Rec 프레임워크는 추천 시스템의 고질적인 파이프라인 병목과 데이터 희소성 문제를 인프라 구조적으로 해결하기 위해 기획되었으며, 도입 시 다음과 같은 세 가지 시스템적 효과 및 거시적 개선을 정량적 목표 가설로 지향합니다.
 
 ### 7.1 극심한 데이터 희소성(Sparsity) 환경 하에서의 파이프라인 강건성 확보
-* **해결 과제**: 벤치마크 기획 대상인 MovieLens-1M(95.5%), Yelp(98.7%), Amazon Beauty(99.9%) 등 실제 대규모 엔터프라이즈 환경의 데이터는 유저의 행동 로그가 극도로 부족한 희소성 문제를 필연적으로 안고 있습니다. 단일 시퀀스 기반 모델은 이러한 임베딩 벡터 실측 환경에서 전반적인 품질이 급격히 저하되는 구조적 취약점이 존재합니다.
+* **해결 과제**: 벤치마크 기획 대상인 MovieLens-1M(희소도 95.5%), Yelp(98.7%), Amazon Beauty(99.9%) 등 실제 공개 벤치마크 데이터는 유저의 행동 로그가 극도로 부족한 희소성 문제를 필연적으로 안고 있습니다. 단일 시퀀스 기반 모델은 이러한 임베딩 벡터 실측 환경에서 전반적인 품질이 급격히 저하되는 구조적 취약점이 존재합니다.
 * **기대 효과**: 본 아키텍처는 `Graph`와 `Side Info` 전용 인코더 채널을 병렬 레이어로 분리 배치함으로써, 개별 유저의 선형 시퀀스 기록이 유실되거나 분절된 콜드 상태 하에서도 토폴로지 신호 기반의 서빙 안정성을 상시 유지하도록 돕습니다.
 
 ### 7.2 Cold-Start 엔티티에 대한 정밀도 보완 및 동적 컨텍스트 제어
 * **해결 과제**: 이력이 극도로 부족한 신규 가입 유저 혹은 신규 인제스천 아이템의 경우, 고정된 크기의 격자판 입력 규격을 사용하는 기존 CNN 모델 파이프라인(COMET 등) 구조상에서는 무의미한 패딩(Padding) 연산 오버헤드가 발생하거나 노이즈 특징을 과적합(Overfitting)하여 예측 실패를 야기합니다.
-* **기대 효과**: `Adaptive Gating Mechanism`을 통합 탑재함으로써, 인코더별 피처 가중치를 **유저 상황에 맞춰 동적으로 조절**하도록 스케줄링합니다. 특히 장표 기획서 상의 설계 가설에 기반하여, 이력이 부족한 Cold-start 환경 영역에서 풍부한 속성 메타데이터를 밀도 높게 연계함으로써 최종 예측 정확도를 **최대 15% 이상 개선**하는 효율적 파이프라인 정밀도 방어를 목표로 합니다.
+* **기대 효과**: `Adaptive Gating Mechanism`을 통합 탑재함으로써, 인코더별 피처 가중치를 **유저 상황에 맞춰 동적으로 조절**하도록 스케줄링합니다. 특히 이력이 부족한 Cold-start 환경 영역에서 풍부한 속성 메타데이터를 밀도 높게 연계함으로써 **최종 예측 정확도를 개선**하는 것을 목표로 하며, 개선 폭은 향후 실험을 통해 검증할 예정입니다.
 
 ### 7.3 추천의 다양성(Serendipity) 및 서빙 커버리지 향상
 * **해결 과제**: 단순 인기작 위주의 스캔이나 1차원적 소비 순서 로그에만 전적으로 의존하는 모델 시스템은 유저에게 편향된 필터 버블(Filter Bubble)을 형성하여 추천 도메인의 커버리지를 축소시키고 유저 이탈을 가속화하는 시스템 병목을 유발합니다.
@@ -169,11 +169,15 @@ Adaptive Fusion 계층을 통과한 128차원 데이터 스트림을 **Predictio
 * [4] Veličković, P., et al. (2018). "**Graph Attention Networks.**" *International Conference on Learning Representations (ICLR)*. [GAT]
 * [5] Kipf, T. N., & Welling, M. (2017). "**Semi-Supervised Classification with Graph Convolutional Networks.**" *ICLR*. [GCN]
 * [6] Wu, S., et al. (2019). "**Session-Based Recommendation with Graph Neural Networks.**" *AAAI Conference on Artificial Intelligence*. [SR-GNN]
+* [7] He, X., et al. (2020). "**LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation.**" *SIGIR*. [LightGCN]
+* [8] Hamilton, W. L., Ying, R., & Leskovec, J. (2017). "**Inductive Representation Learning on Large Graphs.**" *NeurIPS*. [GraphSAGE]
 
 ### 3. Recommender Systems
-* [6] He, X., et al. (2017). "**Neural Collaborative Filtering.**" *World Wide Web Conference (WWW)*. [NCF]
-* [7] Hidasi, B., et al. (2016). "**Session-based Recommendations with Recurrent Neural Networks.**" *ICLR*. [GRU4Rec]
+* [9] Lin, Z., et al. (2023). "**COMET: Convolutional Dimension Interaction for Collaborative Filtering.**" *ACM Transactions on Intelligent Systems and Technology (TIST)*. [COMET]
+* [10] He, X., et al. (2018). "**Outer Product-based Neural Collaborative Filtering.**" *IJCAI*. [ConvNCF]
+* [11] He, X., et al. (2017). "**Neural Collaborative Filtering.**" *World Wide Web Conference (WWW)*. [NCF]
+* [12] Hidasi, B., et al. (2016). "**Session-based Recommendations with Recurrent Neural Networks.**" *ICLR*. [GRU4Rec]
 
 ### 4. Related Works & Surveys
-* [8] Zhang, S., et al. (2019). "**Deep Learning Based Recommender System: A Survey and New Perspectives.**" *ACM Computing Surveys (CSUR)*.
-* [9] Wu, Z., et al. (2020). "**A Comprehensive Survey on Graph Neural Networks.**" *IEEE Transactions on Neural Networks and Learning Systems*.
+* [13] Zhang, S., et al. (2019). "**Deep Learning Based Recommender System: A Survey and New Perspectives.**" *ACM Computing Surveys (CSUR)*.
+* [14] Wu, Z., et al. (2020). "**A Comprehensive Survey on Graph Neural Networks.**" *IEEE Transactions on Neural Networks and Learning Systems*.
