@@ -10,9 +10,9 @@
 본 연구는 2023년 ACM TIST에 발표된 최신 SOTA 추천 모델인 **COMET**의 아키텍처를 직접 PyTorch 기반으로 구현(Replication)하고, 기존 표준 벤치마크 모델인 **NeuMF(2017)**, **ConvNCF(2018)**와의 대조 실험을 통해 통제된 합성 데이터 환경에서의 데이터 변환 효율성과 다차원 엔티티 모델링의 특성을 검증하기 위해 시작되었습니다.
 
 ### 1.2 🎯 Key Architectural Innovations of COMET
-* **User History Embedding Map**: 단순한 User-Item 단일 쌍 피딩 방식에서 탈피하여, 사용자의 과거 $N$개 시청 이력과 현재 타겟 아이템을 하나의 $[(N+1) \times d]$ 차원의 2차원 '이미지 지도로 추상화'하는 전처리 파이프라인 혁신을 이룸.
-* **Explicit Dimension Interaction**: NeuMF의 단순 Concatenation 한계를 극복하기 위해, Outer Product(외적) 연산을 통한 차원 간의 전역적 교차 관계(Dimension-wise Correlation)를 explicit하게 모델링함.
-* **Spatial Pattern Extraction via CNN**: 2차원으로 구조화된 다차원 데이터 큐브로부터 공간적/맥락적 특징 패턴을 추출하기 위해 Multi-layer 2D CNN 구조를 통합 시스템으로 연계함.
+* **User/Item History Embedding Maps**: 단순한 User-Item 단일 쌍 피딩 방식에서 탈피하여, 사용자가 상호작용한 아이템들의 임베딩과 아이템과 상호작용한 사용자들의 임베딩을 각각 가로로 쌓아 **두 개의 2차원 '임베딩 맵'**으로 추상화하는 전처리 파이프라인 혁신을 이룸.
+* **Internal & Dimensional Interaction via CNN**: 기존 모델들이 과거 상호작용과 임베딩 차원을 서로 독립적으로 가정한 한계를 극복하기 위해, 서로 다른 크기의 커널을 가진 CNN으로 이력 간 상호작용(Internal Interaction)과 임베딩 차원 간 상호작용(Dimensional Interaction)을 동시에 모델링함.
+* **Representation Enrichment**: CNN 출력을 MLP에 통과시켜 두 개의 상호작용 벡터를 얻고, 이를 이용해 원래의 사용자·아이템 임베딩 표현을 보강(Enrich)한 뒤 최종 예측을 수행함.
 
 ---
 
@@ -37,13 +37,14 @@ COMET 모델이 로우 데이터를 어떻게 다차원 임베딩 맵으로 변�
 본 실험에서는 데이터 전처리 파이프라인 설계부터 PyTorch 모델 레이어 구현, 하이퍼파라미터 설정 및 랭킹 평가지표 분석을 포괄하는 16개 장의 기술 실험을 수행했습니다.
 
 * **Framework & Dataset**: PyTorch 2.x + Cornac 2.3.5 / Synthetic Data (Power-law distribution, 1,000 Users, 500 Items, 15,000 Interactions, Density 3%)
-* **Core Implementation Logic**: `Outer Product`를 통한 $32 \times 32$ Interaction Map 생성 모듈 및 `Multi-layer 2D CNN` 포워드 패스 파이프라인을 커스텀 구현함.
+* **Core Implementation Logic**: ConvNCF의 `Outer Product`를 통한 $32 \times 32$ Interaction Map 생성 모듈 및 COMET 변형의 이력 임베딩 맵 기반 `Multi-layer 2D CNN` 포워드 패스 파이프라인을 커스텀 구현함.
+* **📌 COMET 구현 범위**: 본 실험의 COMET은 원 논문 구조를 단순화한 변형(Simplified COMET-style Variant)입니다. 사용자 측 이력 맵 하나(최근 10개 아이템 + 타겟 아이템)에 3층 2D CNN과 MaxPool을 적용했으며, 원 논문의 아이템 측 임베딩 맵과 사용자·아이템 임베딩 보강 단계는 포함하지 않았습니다. 따라서 이하의 COMET 결과는 원 논문 모델의 성능이 아니라 이 단순화 변형에 대한 결과입니다.
 * **🔗 Full Lab Report (Source Code)**: 본 모델들의 배경 이론부터 최종 아키텍처 결론까지 아우르는 엄격한 주피터 노트북 기술 분석 리포트입니다.
 ## 🔗 **[Full Report: comet_deep_dive.ipynb](model-experiments/comet_deep_dive.ipynb)**
 
 ---
 
-## SECTION 2. Structural Limitations of COMET
+## SECTION 2. Training Failure Analysis & Structural Limitations
 > SOTA 모델들을 직접 구현하고 합성 데이터(Synthetic Data) 환경 하에서 5 Epochs 벤치마크 테스트를 수행한 결과, 다음과 같은 **학습 실패 현상과 구조적 한계점**을 도출하였습니다.
 
 ### 2.1 Experimental Results & Empirical Discovery (실험 결과 및 한계 도출)
@@ -55,7 +56,7 @@ COMET 모델이 로우 데이터를 어떻게 다차원 임베딩 맵으로 변�
 | **COMET** | *0.0286* | *0.0212* | *0.0456* | 35.6s | 44.7s | **0.6927 $\rightarrow$ 0.6929 (학습 실패/고착)** |
 
 ### 2.2 파이프라인 한계점에 대한 원인 심층 분석 (Root Cause Analysis)
-실험 결과, COMET 모델은 정상적으로 수렴하지 못하고 0.0286이라는 극도로 저조한 성능(Training Failure)을 보였습니다. 분석 결과, 이는 **원천 데이터의 특성과 모델 구조 간의 불일치**에서 비롯된 것으로 판단됩니다. 특히 본 합성 데이터에는 시간 순서가 없어, 사용자를 과거 이력으로만 표현하는 COMET은 학습할 신호를 얻지 못했습니다. 이 분석 과정에서 도출한 COMET 구조의 한계는 다음과 같습니다.
+실험 결과, COMET 모델은 정상적으로 수렴하지 못하고 0.0286이라는 극도로 저조한 성능(Training Failure)을 보였습니다. 분석 결과, 이는 **원천 데이터의 특성과 모델 구조 간의 불일치**에서 비롯된 것으로 판단됩니다. 특히 본 합성 데이터에는 시간 순서가 없어, 사용자를 과거 이력으로만 표현하는 COMET 변형은 학습할 신호를 얻지 못했습니다. 또한 본 구현은 원 논문과 달리 사용자·아이템 임베딩으로 표현을 보강하는 단계가 없어, 이력 신호가 약할 때 의존할 다른 신호가 없었습니다. 이 분석 과정에서 도출한 이력 맵 기반 CNN 구조의 한계는 다음과 같습니다.
 
 1. **시간적 의존성 부족 (Temporal Dependency)**: 고정된 크기의 CNN 커널을 기반으로 임베딩 지도를 스캔하기 때문에, 시간에 따라 유기적으로 변화하는 사용자 행동 스트림 데이터의 장기적인 맥락(Long-term dependency)을 데이터 흐름상에서 포착하지 못합니다. 추가로, 본 합성 데이터셋처럼 인과 관계가 없는 무작위 순서의 로그가 유입될 경우, CNN 필터는 아무런 맥락을 학습하지 못합니다.
 2. **구조적 연결성 간과 (Structural Connectivity)**: 아이템 간의 단순 소비 순서에만 매몰될 뿐, 엔티티 간의 복합적인 관계망이나 공동 소비 패턴(Co-click)과 같은 고차원적 구조적 연결 토폴로지를 피처 레이어에 반영하지 못합니다. 데이터가 Sparse할수록(Density 3%) 단순 히스토리 나열 방식은 오버핏의 원인이 됩니다.
@@ -139,7 +140,7 @@ Adaptive Fusion 계층을 통과한 128차원 데이터 스트림을 **Predictio
 * **기대 효과**: 본 아키텍처는 `Graph`와 `Side Info` 전용 인코더 채널을 병렬 레이어로 분리 배치함으로써, 개별 유저의 선형 시퀀스 기록이 유실되거나 분절된 콜드 상태 하에서도 토폴로지 신호 기반의 서빙 안정성을 상시 유지하도록 돕습니다.
 
 ### 7.2 Cold-Start 엔티티에 대한 정밀도 보완 및 동적 컨텍스트 제어
-* **해결 과제**: 이력이 극도로 부족한 신규 가입 유저 혹은 신규 인제스천 아이템의 경우, 고정된 크기의 격자판 입력 규격을 사용하는 기존 CNN 모델 파이프라인(COMET 등) 구조상에서는 무의미한 패딩(Padding) 연산 오버헤드가 발생하거나 노이즈 특징을 과적합(Overfitting)하여 예측 실패를 야기합니다.
+* **해결 과제**: 이력이 극도로 부족한 신규 가입 유저 혹은 신규 인제스천 아이템의 경우, 고정된 크기의 격자판 입력 규격을 사용하는 이력 맵 기반 CNN 구조에서는 무의미한 패딩(Padding) 연산 오버헤드가 발생하거나 노이즈 특징을 과적합(Overfitting)하여 예측 실패를 야기할 수 있습니다.
 * **기대 효과**: `Adaptive Gating Mechanism`을 통합 탑재함으로써, 인코더별 피처 가중치를 **유저 상황에 맞춰 동적으로 조절**하도록 스케줄링합니다. 특히 이력이 부족한 Cold-start 환경 영역에서 풍부한 속성 메타데이터를 밀도 높게 연계함으로써 **최종 예측 정확도를 개선**하는 것을 목표로 하며, 개선 폭은 향후 실험을 통해 검증할 예정입니다.
 
 ### 7.3 추천의 다양성(Serendipity) 및 서빙 커버리지 향상
@@ -150,7 +151,7 @@ Adaptive Fusion 계층을 통과한 128차원 데이터 스트림을 **Predictio
 
 ## 🎓 Closing Statement (결론)
 
-본 포트폴리오는 최신 SOTA 모델인 COMET이 안고 있던 구조적 결함들을 실제 PyTorch 구현과 데이터 특성 기반의 실패 분석(Root Cause Analysis)을 통해 도출하고, 이를 해결하기 위한 차세대 프레임워크인 M-Trans4Rec을 기획·제안하는 일련의 엄격한 분석 과정을 담고 있습니다.
+본 포트폴리오는 최신 SOTA 모델인 COMET을 단순화한 변형을 PyTorch로 구현하여 학습 실패 현상을 관찰하고, 데이터 특성 기반의 실패 분석(Root Cause Analysis)을 통해 이력 맵 기반 CNN 구조의 한계를 도출한 뒤, 이를 해결하기 위한 차세대 프레임워크인 M-Trans4Rec을 기획·제안하는 일련의 엄격한 분석 과정을 담고 있습니다.
 
 본 프로젝트의 핵심 가치는 단순한 알고리즘 수식 튜닝을 넘어, 현실 세계의 이질적이고 희소한 다중 정보원(시퀀스 로그, 그래프 토폴로지, 정적 메타데이터)을 효율적인 데이터 모델링 관점에서 체계적으로 구조화하고, 사용자 컨텍스트에 따라 데이터를 동적으로 조인(Join)하는 확장 가능한 정보 시스템 아키텍처를 설계했다는 점에 있습니다.
 
